@@ -44,9 +44,9 @@ print("initial discrete observation state:", discrete_observation_state)
 
 # initial q_table
 # with zeros
-#  q_table = np.zeros((num_buckets, num_buckets, env.action_space.n))
+q_table = np.zeros((num_buckets, num_buckets, env.action_space.n))
 # or with random values
-q_table = np.random.uniform(low=-2, high=0, size=(num_buckets, num_buckets, env.action_space.n))
+#  q_table = np.random.uniform(low=-2, high=0, size=(num_buckets, num_buckets, env.action_space.n))
 
 print("initial q_table: ", q_table, q_table.shape)
 
@@ -65,18 +65,22 @@ discount_rate = 0.99
 
 # Exploration parameters
 exploration_rate = 1
-max_exploration_rate = 1
+max_exploration_rate = exploration_rate
 min_exploration_rate = 0.01
 exploration_decay_rate = 0.001
+# decay the exploration_rate after which episode
+start_decay = 1500
 
-show_every = 1000
+show_every = 500
+# metric for evaluation
 rewards_all_episodes = []
 
 # Q-learning algorithm
 for episode in range(num_episodes):
     # only render the game every once a while
     if episode % show_every == 0:
-        render = True
+        render = False
+        np.save(f"{episode}-qtable.npy", q_table)
     else:
         render = False
 
@@ -92,7 +96,15 @@ for episode in range(num_episodes):
         #  print("q_table: ")
         #  print(np.around(q_table, decimals=3))
 
-        action = np.argmax(q_table[discrete_observation_state])
+        # Exploration-exploitation trade-off
+        exploration_rate_threshold = random.uniform(0, 1)
+        ## If this number > greater than epsilon --> exploitation 
+        #(taking the biggest Q value for this state)
+        if exploration_rate_threshold > exploration_rate:
+            action = np.argmax(q_table[discrete_observation_state])
+        # Else doing a random choice --> exploration
+        else:
+            action = env.action_space.sample()
         # Take the action (a) and observe the outcome state(s') and reward (r)
         new_state, reward, done, info = env.step(action)
         # print(f"new_state: {new_state}, reward: {reward}, done: {done}, info: {info}")
@@ -117,7 +129,6 @@ for episode in range(num_episodes):
         # Add new reward
         rewards_current_episode += reward
 
-        print("Episode {}, episode reward {}, step: {}".format(episode, rewards_current_episode, step))
         if render:
             # env.render() to display the graphics
             env.render()
@@ -134,13 +145,46 @@ for episode in range(num_episodes):
 
     # Exploration rate decay
     # Reduce epsilon (because we need less and less exploration)
-    exploration_rate = min_exploration_rate + \
-        (max_exploration_rate - min_exploration_rate) * np.exp(-exploration_decay_rate*episode)
+    if episode >= start_decay:
+        exploration_rate = min_exploration_rate + \
+            (max_exploration_rate - min_exploration_rate) * np.exp(-exploration_decay_rate*(episode-start_decay))
 
     # Add current episode reward to total rewards list
     rewards_all_episodes.append(rewards_current_episode)
 
+    print("Episode {}, episode reward {}, epsilon: {}".format(episode, rewards_current_episode, exploration_rate))
     # move on to the next episode
 
-env.close()
+# Calculate and print the average reward per show_every episodes
+rewards_per_N_episodes = np.split(np.array(rewards_all_episodes),num_episodes/show_every)
+count = show_every
 
+# for plotting
+aggr_ep_rewards = {'ep': [], 'avg': [], 'max': [], 'min': []}
+
+print("\n********Stats per {} episodes********\n".format(show_every))
+for r in rewards_per_N_episodes:
+    print(count, "avg: ", str(sum(r/show_every)))
+    print(count, "min: ", str(min(r)))
+    print(count, "max: ", str(max(r)))
+
+    aggr_ep_rewards['ep'].append(count)
+    aggr_ep_rewards['avg'].append(sum(r/show_every))
+    aggr_ep_rewards['min'].append(min(r))
+    aggr_ep_rewards['max'].append(max(r))
+
+    count += show_every
+
+import matplotlib.pyplot as plt
+
+plt.plot(aggr_ep_rewards['ep'], aggr_ep_rewards['avg'], label="average rewards")
+plt.plot(aggr_ep_rewards['ep'], aggr_ep_rewards['max'], label="max rewards")
+plt.plot(aggr_ep_rewards['ep'], aggr_ep_rewards['min'], label="min rewards")
+plt.legend(loc=2)
+title = "{} Episodes, {:.2f} LR, {:.4f} explore rate, {:.4f} Decay rate\n {} start decay, {} q_table shape, init Zeros".format(num_episodes, learning_rate, max_exploration_rate, exploration_decay_rate, start_decay, q_table.shape)
+print("Title: ", title)
+plt.title(title)
+plt.grid(True)
+plt.show()
+
+env.close()
